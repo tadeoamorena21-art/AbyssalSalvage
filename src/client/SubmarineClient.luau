@@ -68,6 +68,7 @@ local function setHintVisible(visible)
 end
 
 local function verticalInput()
+    if player:GetAttribute("CrewLocked") ~= true then return 0 end
     local up, down = false, false
     for _, value in held do
         if value == 1 then up = true elseif value == -1 then down = true end
@@ -182,7 +183,8 @@ function Client.Start()
         elapsed += dt
         if elapsed < Config.SendInterval then return end
         elapsed = 0
-        if not focused or UserInputService:GetFocusedTextBox() then
+        if player:GetAttribute("CrewLocked") ~= true or not focused or UserInputService:GetFocusedTextBox() then
+            table.clear(held)
             remote:FireServer(0, 0, 0)
         else
             remote:FireServer(activeSeat.ThrottleFloat, activeSeat.SteerFloat, verticalInput())

@@ -40,6 +40,7 @@ local function prompt(parent, name, text, callback)
     p.RequiresLineOfSight = false
     p.Parent = parent
     connect(p.Triggered, function(player)
+        if player:GetAttribute("CrewLocked") ~= true then return end
         local char = player.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChildOfClass("Humanoid")

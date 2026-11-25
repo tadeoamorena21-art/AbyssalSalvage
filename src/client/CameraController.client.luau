@@ -79,7 +79,7 @@ local function connect(signal, callback)
     table.insert(connections, signal:Connect(callback))
 end
 local function blocked()
-    return menuOpen or not focused or UIS:GetFocusedTextBox() ~= nil
+    return player:GetAttribute("CrewLocked") ~= true or menuOpen or not focused or UIS:GetFocusedTextBox() ~= nil
 end
 local function setMode(nextMode)
     mode = nextMode
@@ -162,6 +162,20 @@ params.RespectCanCollide = true
 
 RunService:BindToRenderStep(STEP, Enum.RenderPriority.Camera.Value + 1, function(dt)
     local camera = workspace.CurrentCamera
+    local preparation = player:GetAttribute("CrewLocked") ~= true
+    gui.Enabled = not preparation
+    if preparation then
+        restoreBody()
+        stick = Vector2.zero
+        lookTouch = nil
+        UIS.MouseBehavior = Enum.MouseBehavior.Default
+        UIS.MouseIconEnabled = true
+        if camera then
+            camera.CameraType = Enum.CameraType.Custom
+            if hum then camera.CameraSubject = hum end
+        end
+        return
+    end
     if not camera or not char or not root or not head or not hum or not root.Parent then return end
     if camera ~= savedCamera then
         savedCamera = camera

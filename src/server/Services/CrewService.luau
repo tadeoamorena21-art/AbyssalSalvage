@@ -8,7 +8,7 @@ local PlayerService = require(script.Parent:WaitForChild("PlayerService"))
 local Net = require(Common:WaitForChild("Net"))
 local Service = { LoadPriority = -20 }
 local members, owners, connections, lastRequest = {}, {}, {}, {}
-local phase, leader = "Lobby", nil
+local phase, leader = "Preparation", nil
 local remote, started, initialized
 local function ordered(connectedOnly)
     local result = {}
@@ -59,7 +59,7 @@ local function snapshot()
     local rows = {}
     for _, m in ordered(false) do
         table.insert(rows, { id = m.id, name = m.name, class = m.class,
-            connected = m.player ~= nil,
+            connected = m.player ~= nil, ready = m.ready == true,
             state = m.player and PlayerService.GetState(m.player) or "Disconnected" })
     end
     local roleOwners = table.clone(owners)
@@ -73,33 +73,40 @@ local function add(player)
     PlayerService.Register(player)
     local m = members[player.UserId]
     if not m then
+        if phase == "Locked" then player:Kick("Expedición en curso. Esperá a la próxima preparación."); return end
         if count() >= Defs.MaxCrew then player:Kick("Esta tripulación ya tiene cuatro plazas ocupadas o reservadas."); return end
         m = { id = player.UserId, name = player.DisplayName }
         members[player.UserId] = m
     end
     m.player, m.expires = player, nil
+    m.ready = false
     if m.link then m.link:Disconnect() end
-    m.link = player:GetAttributeChangedSignal("CrewState"):Connect(broadcast)
+    m.link = player:GetAttributeChangedSignal("CrewState"):Connect(function()
+        if PlayerService.GetState(player) ~= "Active" then m.ready = false end
+        broadcast()
+    end)
     broadcast()
 end
 local function choose(player, role)
     local m = members[player.UserId]
     if not m or m.player ~= player then return false, "No pertenecés a esta tripulación" end
-    if phase ~= "Lobby" then return false, "La clase queda fija hasta terminar" end
+    if phase ~= "Preparation" then return false, "La clase queda fija hasta terminar" end
     if type(role) ~= "string" or not Defs.Names[role] then return false, "Clase inválida" end
     for id, other in members do
         if id ~= m.id and other.class == role then return false, "Esa clase ya está ocupada o reservada" end
     end
     m.class = role
+    m.ready = false
     broadcast()
     return true
 end
 function Service.BeginExpedition()
-    if phase ~= "Lobby" then return false, "La tripulación ya está confirmada" end
+    if phase ~= "Preparation" then return false, "La tripulación ya está confirmada" end
     local active = ordered(true)
     if #active == 0 then return false, "No hay tripulantes" end
     for _, m in active do
         if not m.class then return false, "Todos deben elegir una clase" end
+        if not m.ready then return false, "Falta confirmar Listo" end
         if PlayerService.GetState(m.player) ~= "Active" then return false, "Todos deben estar activos" end
     end
     phase = "Locked"
@@ -108,7 +115,8 @@ function Service.BeginExpedition()
 end
 function Service.EndExpedition()
     if phase ~= "Locked" then return false, "No hay tripulación confirmada" end
-    phase = "Lobby"
+    phase = "Preparation"
+    for _, m in members do m.ready = false end
     broadcast()
     return true
 end
@@ -133,7 +141,22 @@ function Service.Start()
         lastRequest[player] = now
         if action == "Sync" then remote:FireClient(player, "Snapshot", snapshot()); return end
         local ok, message = false, "Acción no disponible"
-        if action == "Choose" then ok, message = choose(player, value)
+        if action == "Ready" then
+            local m = members[player.UserId]
+            if phase == "Preparation" and m and m.player == player and m.class and type(value) == "boolean" then
+                if PlayerService.GetState(player) == "Active" then
+                    m.ready = value
+                    ok, message = true, value and "Listo. Esperando al resto…" or "Confirmación cancelada"
+                    local allReady = true
+                    for _, member in ordered(true) do
+                        if not member.ready or not member.class or PlayerService.GetState(member.player) ~= "Active" then allReady = false end
+                    end
+                    if allReady then
+                        ok, message = Service.BeginExpedition()
+                    else broadcast() end
+                else message = "Esperá a estar activo para confirmar" end
+            else message = "Elegí una clase durante la preparación" end
+        elseif action == "Choose" then ok, message = choose(player, value)
         elseif RunService:IsStudio() and members[player.UserId] then
             if action == "TestBegin" and player.UserId == leader then ok, message = Service.BeginExpedition()
             elseif action == "TestEnd" and player.UserId == leader then ok, message = Service.EndExpedition()
@@ -159,7 +182,7 @@ function Service.Start()
         for id, m in members do
             if not m.player and m.expires and os.clock() >= m.expires then members[id] = nil; changed = true end
         end
-        if next(members) == nil then phase = "Lobby" end
+        if next(members) == nil then phase = "Preparation" end
         if changed then broadcast() end
     end))
     for _, player in Players:GetPlayers() do add(player) end
@@ -169,6 +192,6 @@ function Service.Destroy()
     for _, c in connections do c:Disconnect() end
     for _, m in members do if m.link then m.link:Disconnect() end end
     table.clear(connections); table.clear(members); table.clear(owners); table.clear(lastRequest)
-    phase, leader, started = "Lobby", nil, false
+    phase, leader, started = "Preparation", nil, false
 end
 return Service
